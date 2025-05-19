@@ -347,6 +347,8 @@ def get_active_language_code():
     return user_locale
 
 
+
+
 def setup_translation():
     """Do a one-time setup of translations"""
     global attempted_setup_translation, t
@@ -354,7 +356,7 @@ def setup_translation():
     # Use local import to avoid circular import.
     from bleachbit import locale_dir
     user_locale = get_active_language_code()
-    logger.debug(f"user_locale: {user_locale}, locale_dir: {locale_dir}")
+    logger.debug("user_locale: %s, locale_dir: %s", user_locale, locale_dir)
     assert isinstance(user_locale, str)
     assert isinstance(locale_dir, str), f"locale_dir: {locale_dir}"
     if 'win32' == sys.platform and user_locale:
@@ -376,22 +378,49 @@ def setup_translation():
         from bleachbit.Windows import load_i18n_dll
         libintl = load_i18n_dll()
         if not libintl:
-            logger.error(
-                'The internationalization library is not available.')
+            logger.error('The internationalization library is not available. Falling back to English.')
+            t = gettext.NullTranslations()
+            return
+
+        try:
+            logger.debug(f'dll name: {libintl._name}')
+        except Exception as e:
+            logger.debug(f'Error getting dll name: {e}')
+
         assert isinstance(text_domain, str)
         encoded_domain = text_domain.encode('utf-8')
         # wbindtextdomain(char, wchar): first parameter is encoded
-        if hasattr(libintl, 'libintl_wbindtextdomain'):
-            libintl.libintl_wbindtextdomain(encoded_domain, locale_dir)
-            libintl.textdomain(encoded_domain)
-            libintl.bind_textdomain_codeset(encoded_domain, b'UTF-8')
-        else:
-            logger.error(
-                'The function wbindtextdomain() is not available.')
 
-        # Log for debugging
-        logger.debug(
-            f"Windows translation domain set to: {text_domain}, dir: {locale_dir}")
+        # Log all textdomain-related attributes for debugging
+        textdomain_attrs = [attr for attr in dir(libintl) if 'textdomain' in attr.lower()]
+        textdomain_attrs_str = ', '.join(textdomain_attrs) or 'None'
+        logger.debug("Available textdomain functions in libintl: %s", textdomain_attrs_str)
+        logger.debug("dir(libintl): %s", dir(libintl))
+
+        # Try wide character version first
+        text_domain_bound = False
+        if hasattr(libintl, 'libintl_wbindtextdomain'):
+            try:
+                libintl.libintl_wbindtextdomain(encoded_domain, locale_dir)
+                libintl.textdomain(encoded_domain)
+                libintl.bind_textdomain_codeset(encoded_domain, b'UTF-8')
+                text_domain_bound = True
+            except Exception as e:
+                logger.error("Error setting up wide character text domain: %s", e)
+        else:
+            logger.error("hasattr(libintl, 'libintl_wbindtextdomain')=False")
+
+        if not text_domain_bound:
+            # Use ANSI version
+            try:
+                libintl.bindtextdomain(encoded_domain, locale_dir.encode('utf-8'))
+                libintl.textdomain(encoded_domain)
+            except Exception as e:
+                logger.error("Error setting up ANSI text domain: %s", e)
+                t = gettext.NullTranslations()
+                return
+
+        logger.debug("Windows translation domain set to: %s, dir: %s", text_domain, locale_dir)
     else:
         logger.error('The function bindtextdomain() is not available.')
 

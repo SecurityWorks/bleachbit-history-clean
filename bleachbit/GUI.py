@@ -530,7 +530,8 @@ class TreeInfoModel:
             c_id = backends[key].get_id()
             c_value = options.get_tree(c_id, None)
             if not c_value and options.get('auto_hide') and backends[key].auto_hide():
-                logger.debug("automatically hiding cleaner '%s'", c_id)
+                # temporary for troubleshooting
+                #logger.debug("automatically hiding cleaner '%s'", c_id)
                 continue
             parent = self.tree_store.append(None, (c_name, c_value, c_id, ""))
             for (o_id, o_name) in backends[key].get_options():
@@ -722,6 +723,16 @@ class GUI(Gtk.ApplicationWindow):
         self._font_css_provider = None
 
         self._set_appindicator()
+
+        # Temporary for troubleshooting
+        from bleachbit.Log import set_root_log_level
+        set_root_log_level(True)
+        from bleachbit.SystemInformation import get_version
+        logger.debug("Version: %s", get_version(True))
+        import locale
+        logger.debug("Locale: %s", locale.getlocale())
+        import platform
+        logger.debug("Platform: %s", platform.uname().version)
 
     def _set_appindicator(self):
         """Setup the app indicator"""

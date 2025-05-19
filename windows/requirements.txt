@@ -2,6 +2,7 @@
 certifi
 chardet
 plyer
+pefile # temporary file troubleshooting
 psutil
 py2exe
 pypiwin32

@@ -525,6 +525,47 @@ def is_process_running(exename, require_same_user):
     return False
 
 
+def _get_file_info(path):
+    """Get detailed information about a file"""
+    import hashlib
+    import time
+    try:
+        stat = os.stat(path)
+        size = stat.st_size
+        mtime = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stat.st_mtime))
+        
+        # Calculate MD5 checksum (files are small, so read in one go)
+        with open(path, 'rb') as f:
+            checksum = hashlib.md5(f.read()).hexdigest()
+        
+        return {
+            'path': path,
+            'size': size,
+            'mtime': mtime,
+            'checksum': checksum,
+            'exists': True
+        }
+    except Exception as e:
+        return {
+            'path': path,
+            'exists': False,
+            'error': str(e)
+        }
+
+def analyze_pefile(path):
+    """List all exports for DLL using pefile"""
+    import pefile
+    export_names = []
+    try:
+        pe = pefile.PE(path)
+        if hasattr(pe, 'DIRECTORY_ENTRY_EXPORT'):
+            for exp in pe.DIRECTORY_ENTRY_EXPORT.symbols:
+                export_names.append(exp.name.decode('utf-8') if exp.name else exp.name)
+    except pefile.PEFormatError as e:
+        print(f"Error reading {path}: {e}")
+    return export_names
+
+
 def load_i18n_dll():
     """Load internationalization library
 
@@ -534,40 +575,67 @@ def load_i18n_dll():
     Returns None if the dll is not available.
     """
     import ctypes
+    import ctypes.util
+    
     lib_fns = ['libintl-8.dll', 'intl-8.dll']
-    dirs = set([bleachbit.bleachbit_exe_path, os.path.dirname(sys.executable)])
-    lib_path = None
+    search_paths = []
+    
+    # DLL should be with BleachBit
+    search_dirs = [bleachbit.bleachbit_exe_path, os.path.dirname(sys.executable)]
+    logger.debug("Searching for %s in %s", lib_fns, search_dirs)
+    for search_dir in search_dirs:
+        for lib_fn in lib_fns:
+            search_paths.append(('explicit', os.path.join(search_dir, lib_fn)))
+    
+    # During troubleshooting, also search PATH
     for lib_fn in lib_fns:
-        if lib_path:
-            break
-        for dir in dirs:
-            lib_path = os.path.join(dir, lib_fn)
-            if os.path.exists(lib_path):
-                break
-            lib_path = None
-    if not lib_path:
-        logger.warning(
-            'internationalization library was not found, so translations will not work.')
-        return
-    try:
-        libintl = ctypes.cdll.LoadLibrary(lib_path)
-    except Exception as e:
-        logger.warning('error in LoadLibrary(%s): %s', lib_path, e)
-        return
+        try:
+            lib_path = ctypes.util.find_library(lib_fn)
+            if lib_path:
+                search_paths.append(('PATH', lib_path))
+        except Exception as e:
+            logger.debug("Error searching for %s in PATH: %s", lib_fn, e)
+    
 
-    # Configure DLL function prototypes
-    libintl.bindtextdomain.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
-    libintl.bindtextdomain.restype = ctypes.c_char_p
-    libintl.bind_textdomain_codeset.argtypes = [
-        ctypes.c_char_p, ctypes.c_char_p]
-    libintl.textdomain.argtypes = [ctypes.c_char_p]
+    # First pass: collect and log information about all potential DLLs
+    potential_dlls = []
+    loaded_paths = set()  # Track already seen paths to avoid duplicates
+    
+    for source, path in search_paths:
+        path_lower = path.lower()
+        if path_lower in loaded_paths:
+            continue
+            
+        loaded_paths.add(path_lower)
+        file_info = _get_file_info(path)
+        
+        if file_info['exists']:
+            logger.debug("Found %s | Size: %s bytes | "
+                        "Modified: %s | MD5: %s",
+                        file_info['path'], file_info['size'],
+                        file_info['mtime'], file_info['checksum'])
+            potential_dlls.append((source, path, file_info))
+            export_names = analyze_pefile(path)
+            logger.debug("Exports for %s: %s", path, export_names)
+        else:
+            #logger.debug("Not found in %s: %s", source, path)
+            pass
 
-    if hasattr(libintl, "libintl_wbindtextdomain"):
-        libintl.libintl_wbindtextdomain.argtypes = [
-            ctypes.c_char_p, ctypes.c_wchar_p]
-        libintl.libintl_wbindtextdomain.restype = ctypes.c_wchar_p
+    # Second pass: try to load each potential DLL
+    if not potential_dlls:
+        logger.debug("No potential DLLs found to load")
+        return None
 
-    return libintl
+    for source, path, file_info in potential_dlls:
+        try:
+            logger.debug("Loading %s...", path)
+            libintl = ctypes.CDLL(path, use_errno=True)
+            return libintl
+        except Exception as e:
+            logger.debug("Failed to load %s: %s", path, e)
+
+    logger.error("Could not find or load any internationalization library")
+    return None
 
 
 def move_to_recycle_bin(path):

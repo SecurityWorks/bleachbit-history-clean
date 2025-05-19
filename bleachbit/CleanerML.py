@@ -308,11 +308,13 @@ def load_cleaners(cb_progress=lambda x: None):
         if cleaner.is_usable():
             Cleaner.backends[cleaner.id] = cleaner
         else:
-            logger.debug(
-                # TRANSLATORS: An action is something like cleaning a specific file.
-                # "Not usable" means the whole cleaner will be ignored.
-                # The substituted variable is a pathname.
-                _("Cleaner is not usable on this OS because it has no actions: %s"), pathname)
+            pass
+            # temporary for troubleshooting
+            #logger.debug(
+            #    # TRANSLATORS: An action is something like cleaning a specific file.
+            #    # "Not usable" means the whole cleaner will be ignored.
+            #    # The substituted variable is a pathname.
+            #    _("Cleaner is not usable on this OS because it has no actions: %s"), pathname)
         files_done += 1
         cb_progress(1.0 * files_done / total_files)
         yield True
