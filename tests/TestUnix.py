@@ -62,6 +62,8 @@ from bleachbit.Unix import (
     Locales,
     pacman_cache,
     root_is_not_allowed_to_X_session,
+    snap_disabled_clean,
+    snap_disabled_preview,
     rotated_logs,
     run_cleaner_cmd,
     wine_to_linux_path,
@@ -769,6 +771,27 @@ root               531   0.0  0.0  2501712    588   ??  Ss   20May16   0:02.40 s
             bytes_freed = pacman_cache()
             self.assertIsInteger(bytes_freed)
             logger.debug('pacman bytes cleaned %d', bytes_freed)
+
+    @common.skipIfWindows
+    @common.skipUnlessDestructive
+    def test_snap_disabled_clean(self):
+        """Unit test for snap_disabled_clean()"""
+        if not exe_exists('snap'):
+            self.assertRaises(RuntimeError, snap_disabled_clean)
+        else:
+            bytes_freed = snap_disabled_clean()
+            self.assertIsInteger(bytes_freed)
+            logger.debug('snap disabled bytes freed %d', bytes_freed)
+
+    @common.skipIfWindows
+    def test_snap_disabled_preview(self):
+        """Unit test for snap_disabled_preview()"""
+        if not exe_exists('snap'):
+            self.assertRaises(RuntimeError, snap_disabled_preview)
+        else:
+            bytes_freed = snap_disabled_preview()
+            self.assertIsInstance(bytes_freed, int)
+            logger.debug('snap disabled bytes freed %d', bytes_freed)
 
     @common.skipIfWindows
     def test_has_gui(self):

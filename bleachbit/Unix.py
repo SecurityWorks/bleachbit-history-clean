@@ -745,6 +745,78 @@ def pacman_cache():
     return 0
 
 
+def snap_disabled_full(really_delete):
+    """Remove disabled snaps"""
+    assert isinstance(really_delete, bool)
+    if not exe_exists('snap'):
+        raise RuntimeError('snap not found')
+
+    # Get list of all snaps.
+    cmd = ['snap', 'list', '--all']
+    (rc, stdout, stderr) = General.run_external(cmd, clean_env=True)
+    if rc > 0:
+        raise RuntimeError(f'snap list raised error {rc}: {stderr}')
+
+    # Parse output to find disabled snaps.
+    disabled_snaps = []
+    lines = stdout.strip().split('\n')
+    if not lines:
+        return 0
+    header = lines[0].lower()
+    if "name" not in header or "rev" not in header or "notes" not in header:
+        raise RuntimeError("Unexpected snap list output format")
+    for line in lines[1:]:  # Skip header line
+        parts = line.split()
+        if len(parts) >= 4 and 'disabled' in line:
+            snapname = parts[0]
+            revision = parts[2]
+            disabled_snaps.append((snapname, revision))
+    if not disabled_snaps:
+        return 0
+
+    # Remove disabled snaps.
+    total_freed = 0
+    for snapname, revision in disabled_snaps:
+        # `snap info` returns info only about active snaps.
+        # Instead, get size from the snap file directly.
+        snap_file = f'/var/lib/snapd/snaps/{snapname}_{revision}.snap'
+        if os.path.exists(snap_file):
+            snap_size = os.path.getsize(snap_file)
+            logger.debug('Found snap file: %s, size: %s',
+                         snap_file, f"{snap_size:,}")
+        else:
+            logger.warning('Could not find snap file: %s', snap_file)
+            snap_size = 0
+
+        # Remove the snap revision
+        if really_delete:
+            remove_cmd = ['snap', 'remove', snapname, f'--revision={revision}']
+            (rc, _, remove_stderr) = General.run_external(
+                remove_cmd, clean_env=True)
+            if rc > 0:
+                logger.warning(
+                    'Failed to remove snap %s revision %s: %s', snapname, revision, remove_stderr)
+                break
+            else:
+                total_freed += snap_size
+                logger.debug(
+                    'Removed snap %s revision %s, freed %s bytes', snapname, revision, snap_size)
+        else:
+            total_freed += snap_size
+
+    return total_freed
+
+
+def snap_disabled_clean():
+    """Remove disabled snaps"""
+    return snap_disabled_full(True)
+
+
+def snap_disabled_preview():
+    """Preview snaps that would be removed"""
+    return snap_disabled_full(False)
+
+
 def has_gui():
     """Return True if the GUI is available"""
     assert os.name == 'posix'
